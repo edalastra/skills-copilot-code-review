@@ -12,13 +12,23 @@
     />
   </head>
   <body>
-     <div class="announcement-banner">
-      📢 As inscrições para atividades estão abertas até o final do mês. Não perca sua vaga!
+    <div id="announcements-banner" class="announcement-banner hidden" role="region" aria-label="Anúncios">
+      <div class="announcement-banner-inner">
+        <span class="announcement-icon" aria-hidden="true">📢</span>
+        <span id="announcements-banner-text" class="announcement-text"></span>
+        <div id="announcements-banner-nav" class="banner-dots hidden" aria-label="Navegar entre anúncios"></div>
+      </div>
+      <button id="dismiss-announcements" class="dismiss-banner" aria-label="Fechar anúncio">&times;</button>
     </div>
     <header>
       <h1>Mergington High School</h1>
       <h2>Atividades Extracurriculares</h2>
       <div id="user-controls">
+        <button id="announcements-button" class="icon-button" aria-label="Ver anúncios">
+          <span aria-hidden="true">📢</span>
+          <span>Anúncios</span>
+          <span id="announcements-badge" class="badge hidden" aria-label="anúncios ativos">0</span>
+        </button>
         <div id="user-status">
           <button id="login-button" class="icon-button">
             <span class="user-icon">👤</span>
@@ -100,6 +110,52 @@
     <footer>
       <p>&copy; 2023 Mergington High School</p>
     </footer>
+
+    <!-- Announcements Management Modal -->
+    <div id="announcements-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="announcements-modal-title">
+      <div class="modal-content announcements-modal-content">
+        <div class="modal-header">
+          <h3 id="announcements-modal-title">📢 Anúncios</h3>
+          <button type="button" class="close-announcements-modal" aria-label="Fechar">&times;</button>
+        </div>
+
+        <!-- Add button (teachers only, shown via JS) -->
+        <div id="announcements-add-area" class="hidden">
+          <button id="add-announcement-btn" class="btn-add-announcement" aria-label="Criar novo anúncio">
+            <span aria-hidden="true">＋</span> Novo Anúncio
+          </button>
+        </div>
+
+        <!-- Add / Edit form -->
+        <div id="announcement-form-container" class="hidden" aria-live="polite">
+          <h4 id="announcement-form-title">Novo Anúncio</h4>
+          <form id="announcement-form" novalidate>
+            <div class="form-group">
+              <label for="ann-message">Mensagem <span class="required">*</span></label>
+              <textarea id="ann-message" rows="3" placeholder="Digite o texto do anúncio..." required aria-required="true"></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="ann-start-date">Data de Início <span class="optional">(opcional)</span></label>
+                <input type="date" id="ann-start-date" aria-label="Data de início do anúncio" />
+              </div>
+              <div class="form-group">
+                <label for="ann-expiry-date">Data de Expiração <span class="required">*</span></label>
+                <input type="date" id="ann-expiry-date" required aria-required="true" />
+              </div>
+            </div>
+            <div id="ann-form-error" class="message error hidden" role="alert"></div>
+            <div class="form-actions">
+              <button type="button" id="ann-form-cancel" class="btn-secondary">Cancelar</button>
+              <button type="submit" class="btn-primary">Salvar</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Announcements list -->
+        <div id="announcements-list-modal" class="announcements-list" aria-live="polite"></div>
+      </div>
+    </div>
 
     <!-- Registration Modal -->
     <div id="registration-modal" class="modal hidden">

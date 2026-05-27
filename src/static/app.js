@@ -899,8 +899,328 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeRangeFilter,
   };
 
+  // ==================== ANNOUNCEMENTS ====================
+
+  let activeAnnouncementsData = [];
+  let currentAnnouncementIndex = 0;
+  let announcementCarouselTimer = null;
+  let editingAnnouncementId = null;
+
+  const announcementsButton = document.getElementById("announcements-button");
+  const announcementsModal = document.getElementById("announcements-modal");
+  const closeAnnouncementsModalBtn = document.querySelector(".close-announcements-modal");
+  const announcementsBadge = document.getElementById("announcements-badge");
+
+  // --- Banner ---
+
+  async function fetchActiveAnnouncements() {
+    try {
+      const response = await fetch("/announcements");
+      if (!response.ok) return;
+      activeAnnouncementsData = await response.json();
+      renderAnnouncementsBanner();
+      updateAnnouncementsBadge();
+    } catch (error) {
+      console.error("Erro ao buscar anúncios:", error);
+    }
+  }
+
+  function renderAnnouncementsBanner() {
+    const banner = document.getElementById("announcements-banner");
+    const bannerNav = document.getElementById("announcements-banner-nav");
+
+    if (!activeAnnouncementsData || activeAnnouncementsData.length === 0) {
+      banner.classList.add("hidden");
+      stopCarousel();
+      return;
+    }
+
+    banner.classList.remove("hidden");
+    currentAnnouncementIndex = 0;
+
+    if (activeAnnouncementsData.length > 1) {
+      bannerNav.classList.remove("hidden");
+      bannerNav.innerHTML = activeAnnouncementsData
+        .map((_, i) => `<span class="banner-dot${i === 0 ? " active" : ""}" data-index="${i}" role="button" aria-label="Anúncio ${i + 1}"></span>`)
+        .join("");
+      bannerNav.querySelectorAll(".banner-dot").forEach((dot) => {
+        dot.addEventListener("click", () => {
+          currentAnnouncementIndex = parseInt(dot.dataset.index, 10);
+          showAnnouncementAt(currentAnnouncementIndex);
+          restartCarousel();
+        });
+      });
+      startCarousel();
+    } else {
+      bannerNav.classList.add("hidden");
+      stopCarousel();
+    }
+
+    showAnnouncementAt(0);
+  }
+
+  function showAnnouncementAt(index) {
+    const bannerText = document.getElementById("announcements-banner-text");
+    bannerText.classList.remove("fade-in");
+    void bannerText.offsetWidth; // trigger reflow for animation restart
+    bannerText.classList.add("fade-in");
+    bannerText.textContent = activeAnnouncementsData[index].message;
+    currentAnnouncementIndex = index;
+    document.querySelectorAll(".banner-dot").forEach((dot, i) => {
+      dot.classList.toggle("active", i === index);
+    });
+  }
+
+  function startCarousel() {
+    stopCarousel();
+    announcementCarouselTimer = setInterval(() => {
+      const next = (currentAnnouncementIndex + 1) % activeAnnouncementsData.length;
+      showAnnouncementAt(next);
+    }, 5000);
+  }
+
+  function stopCarousel() {
+    if (announcementCarouselTimer) {
+      clearInterval(announcementCarouselTimer);
+      announcementCarouselTimer = null;
+    }
+  }
+
+  function restartCarousel() {
+    if (activeAnnouncementsData.length > 1) startCarousel();
+  }
+
+  function updateAnnouncementsBadge() {
+    const count = activeAnnouncementsData ? activeAnnouncementsData.length : 0;
+    if (count > 0) {
+      announcementsBadge.textContent = count;
+      announcementsBadge.classList.remove("hidden");
+    } else {
+      announcementsBadge.classList.add("hidden");
+    }
+  }
+
+  document.getElementById("dismiss-announcements").addEventListener("click", () => {
+    document.getElementById("announcements-banner").classList.add("hidden");
+    stopCarousel();
+  });
+
+  // --- Modal ---
+
+  function openAnnouncementsModal() {
+    announcementsModal.classList.remove("hidden");
+    setTimeout(() => announcementsModal.classList.add("show"), 10);
+    loadAnnouncementsModal();
+  }
+
+  function closeAnnouncementsModal() {
+    announcementsModal.classList.remove("show");
+    setTimeout(() => announcementsModal.classList.add("hidden"), 300);
+    hideAnnouncementForm();
+  }
+
+  async function loadAnnouncementsModal() {
+    const listEl = document.getElementById("announcements-list-modal");
+    const addArea = document.getElementById("announcements-add-area");
+
+    listEl.innerHTML = '<p class="loading-announcements">Carregando anúncios...</p>';
+
+    // Show or hide the add button based on authentication
+    if (currentUser) {
+      addArea.classList.remove("hidden");
+    } else {
+      addArea.classList.add("hidden");
+      hideAnnouncementForm();
+    }
+
+    try {
+      let announcements;
+      if (currentUser) {
+        const res = await fetch(
+          `/announcements/all?teacher_username=${encodeURIComponent(currentUser.username)}`
+        );
+        if (!res.ok) throw new Error();
+        announcements = await res.json();
+      } else {
+        announcements = activeAnnouncementsData;
+      }
+      renderAnnouncementsModalList(announcements);
+    } catch {
+      listEl.innerHTML = '<p class="error-text">Erro ao carregar anúncios.</p>';
+    }
+  }
+
+  function renderAnnouncementsModalList(announcements) {
+    const listEl = document.getElementById("announcements-list-modal");
+    const today = new Date().toISOString().split("T")[0];
+
+    if (!announcements || announcements.length === 0) {
+      listEl.innerHTML = '<p class="no-announcements-text">Nenhum anúncio encontrado.</p>';
+      return;
+    }
+
+    listEl.innerHTML = "";
+    announcements.forEach((ann) => {
+      const isExpired = ann.expiry_date < today;
+      const isUpcoming = ann.start_date && ann.start_date > today;
+      const statusLabel = isExpired ? "Expirado" : isUpcoming ? "Agendado" : "Ativo";
+      const statusClass = isExpired ? "status-expired" : isUpcoming ? "status-upcoming" : "status-active";
+      const startLabel = ann.start_date ? formatDateBR(ann.start_date) : "Imediato";
+
+      const item = document.createElement("div");
+      item.className = `announcement-item${isExpired ? " expired" : ""}`;
+      item.innerHTML = `
+        <div class="announcement-item-header">
+          <span class="announcement-status ${statusClass}">${statusLabel}</span>
+          ${currentUser ? `
+          <div class="announcement-item-actions">
+            <button class="icon-btn-small ann-edit-btn" data-id="${ann.id}" title="Editar anúncio" aria-label="Editar anúncio">✏️</button>
+            <button class="icon-btn-small ann-delete-btn" data-id="${ann.id}" title="Excluir anúncio" aria-label="Excluir anúncio">🗑️</button>
+          </div>` : ""}
+        </div>
+        <p class="announcement-message">${escapeHtml(ann.message)}</p>
+        <div class="announcement-dates">
+          <span>📅 Início: <strong>${startLabel}</strong></span>
+          <span>⏰ Expira: <strong>${formatDateBR(ann.expiry_date)}</strong></span>
+        </div>
+      `;
+
+      if (currentUser) {
+        item.querySelector(".ann-edit-btn").addEventListener("click", () => {
+          showAnnouncementForm(ann);
+          document.getElementById("announcement-form-container").scrollIntoView({ behavior: "smooth" });
+        });
+        item.querySelector(".ann-delete-btn").addEventListener("click", () => {
+          showConfirmationDialog(
+            `Deseja excluir o anúncio: "${ann.message.substring(0, 60)}${ann.message.length > 60 ? "…" : ""}"?`,
+            async () => deleteAnnouncement(ann.id)
+          );
+        });
+      }
+
+      listEl.appendChild(item);
+    });
+  }
+
+  function formatDateBR(isoDate) {
+    if (!isoDate) return "—";
+    const [year, month, day] = isoDate.split("-");
+    return `${day}/${month}/${year}`;
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.appendChild(document.createTextNode(text));
+    return div.innerHTML;
+  }
+
+  // --- Form (add / edit) ---
+
+  function showAnnouncementForm(editData = null) {
+    const container = document.getElementById("announcement-form-container");
+    editingAnnouncementId = editData ? editData.id : null;
+    document.getElementById("announcement-form-title").textContent =
+      editData ? "Editar Anúncio" : "Novo Anúncio";
+    document.getElementById("ann-message").value = editData ? editData.message : "";
+    document.getElementById("ann-start-date").value = editData && editData.start_date ? editData.start_date : "";
+    document.getElementById("ann-expiry-date").value = editData ? editData.expiry_date : "";
+    document.getElementById("ann-form-error").classList.add("hidden");
+    container.classList.remove("hidden");
+    document.getElementById("ann-message").focus();
+  }
+
+  function hideAnnouncementForm() {
+    const container = document.getElementById("announcement-form-container");
+    container.classList.add("hidden");
+    editingAnnouncementId = null;
+    const form = document.getElementById("announcement-form");
+    if (form) form.reset();
+    const errEl = document.getElementById("ann-form-error");
+    if (errEl) errEl.classList.add("hidden");
+  }
+
+  async function deleteAnnouncement(id) {
+    try {
+      const res = await fetch(
+        `/announcements/${id}?teacher_username=${encodeURIComponent(currentUser.username)}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const data = await res.json();
+        showMessage(data.detail || "Erro ao excluir anúncio.", "error");
+        return;
+      }
+      showMessage("Anúncio excluído com sucesso.", "success");
+      await fetchActiveAnnouncements();
+      await loadAnnouncementsModal();
+    } catch {
+      showMessage("Erro ao excluir anúncio.", "error");
+    }
+  }
+
+  document.getElementById("announcement-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!currentUser) return;
+
+    const message = document.getElementById("ann-message").value.trim();
+    const startDate = document.getElementById("ann-start-date").value || null;
+    const expiryDate = document.getElementById("ann-expiry-date").value;
+    const errorDiv = document.getElementById("ann-form-error");
+
+    errorDiv.classList.add("hidden");
+
+    if (!message) {
+      errorDiv.textContent = "A mensagem é obrigatória.";
+      errorDiv.classList.remove("hidden");
+      return;
+    }
+    if (!expiryDate) {
+      errorDiv.textContent = "A data de expiração é obrigatória.";
+      errorDiv.classList.remove("hidden");
+      return;
+    }
+
+    const payload = { message, start_date: startDate, expiry_date: expiryDate };
+    const url = editingAnnouncementId
+      ? `/announcements/${editingAnnouncementId}?teacher_username=${encodeURIComponent(currentUser.username)}`
+      : `/announcements?teacher_username=${encodeURIComponent(currentUser.username)}`;
+    const method = editingAnnouncementId ? "PUT" : "POST";
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        errorDiv.textContent = data.detail || "Erro ao salvar anúncio.";
+        errorDiv.classList.remove("hidden");
+        return;
+      }
+      showMessage(editingAnnouncementId ? "Anúncio atualizado com sucesso!" : "Anúncio criado com sucesso!", "success");
+      hideAnnouncementForm();
+      await fetchActiveAnnouncements();
+      await loadAnnouncementsModal();
+    } catch {
+      errorDiv.textContent = "Erro ao salvar anúncio.";
+      errorDiv.classList.remove("hidden");
+    }
+  });
+
+  document.getElementById("add-announcement-btn").addEventListener("click", () => showAnnouncementForm());
+  document.getElementById("ann-form-cancel").addEventListener("click", hideAnnouncementForm);
+  announcementsButton.addEventListener("click", openAnnouncementsModal);
+  closeAnnouncementsModalBtn.addEventListener("click", closeAnnouncementsModal);
+  window.addEventListener("click", (event) => {
+    if (event.target === announcementsModal) closeAnnouncementsModal();
+  });
+
+  // ==================== END ANNOUNCEMENTS ====================
+
   // Initialize app
   checkAuthentication();
   initializeFilters();
   fetchActivities();
+  fetchActiveAnnouncements();
 });
